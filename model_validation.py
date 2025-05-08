@@ -1,0 +1,180 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# Data Preparation: English-to-Chinese Translator Data
+
+from model.transformer import build_transformer
+from tokenization import PrepareData, MaskBatch
+import time
+import torch
+import torch.nn as nn
+import numpy as np
+from tqdm import tqdm
+
+import warnings
+
+warnings.filterwarnings('ignore')  # Filtering warnings
+
+# init parameters
+PAD = 0  # padding word-id
+UNK = 1  # unknown word-id
+
+# DEBUG = True    # Debug / Learning Purposes.
+DEBUG = False  # Build the model, better with GPU CUDA enabled.
+
+
+def get_config(debug=True):
+    if debug:
+        return {
+            'lr': 1e-2,
+            'batch_size': 64,
+            'num_epochs': 2,
+            'n_layer': 3,
+            'h_num': 8,
+            'd_model': 128,  # Dimensions of the embeddings in the Transformer
+            'd_ff': 256,  # Dimensions of the feedforward layer in the Transformer
+            'dropout': 0.1,
+            'seq_len': 60,  # max length
+            'train_file': 'data/en-cn/train_mini.txt',
+            'dev_file': 'data/en-cn/dev_mini.txt',
+            'save_file': 'save/models/model.pt'
+        }
+    else:
+        return {
+            'lr': 1e-4,
+            'batch_size': 64,
+            'num_epochs': 20,
+            'n_layer': 6,
+            'h_num': 8,
+            'd_model': 256,  # Dimensions of the embeddings in the Transformer
+            'd_ff': 1024,  # Dimensions of the feedforward layer in the Transformer
+            'dropout': 0.1,
+            'seq_len': 60,  # max length
+            'train_file': 'data/en-cn/train.txt',
+            'dev_file': 'data/en-cn/dev.txt',
+            'save_file': 'save/models/model.pt'
+        }
+
+
+def get_model(config, vocab_src_len, vocab_tgt_len):
+    # Loading model using the 'build_transformer' function.
+    # We will use the lengths of the source language and target language vocabularies, the 'seq_len', and the dimensionality of the embeddings
+    model = build_transformer(vocab_src_len, vocab_tgt_len, config['seq_len'], config['seq_len'], config['d_model'],
+                              config['n_layer'], config['h_num'], config['dropout'], config['d_ff'])
+    return model
+
+
+# get config
+config = get_config(DEBUG)  # Retrieving config settings
+
+# Setting up device to run on GPU to train faster
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Using device {device}")
+
+# Data Preprocessing
+data = PrepareData(config['train_file'], config['dev_file'], config['batch_size'], UNK, PAD)
+src_vocab_size = len(data.en_word_dict);
+print(f"src_vocab_size {src_vocab_size}")
+tgt_vocab_size = len(data.cn_word_dict);
+print(f"tgt_vocab_size {tgt_vocab_size}")
+
+# Model
+model = get_model(config, src_vocab_size, tgt_vocab_size).to(device)
+
+# Initializing CrossEntropyLoss function for training
+# We ignore padding tokens when computing loss, as they are not relevant for the learning process
+# We also apply label_smoothing to prevent overfitting
+loss_fn = nn.CrossEntropyLoss(ignore_index=PAD, label_smoothing=0.).to(device)
+
+optimizer = torch.optim.Adam(model.parameters(), lr=config['lr'], eps=1e-9)
+
+model.load_state_dict(torch.load('./save/models/model-100.pt'))
+
+
+def casual_mask(size):
+    # Creating a square matrix of dimensions 'size x size' filled with ones
+    mask = torch.triu(torch.ones(1, size, size), diagonal=1).type(torch.int)
+    return mask == 0
+
+
+# Define function to obtain the most probable next token
+def greedy_decode(model, source, source_mask, tokenizer_tgt, max_len, device):
+    # Retrieving the indices from the start and end of sequences of the target tokens
+    bos_id = tokenizer_tgt.get('BOS')
+    eos_id = tokenizer_tgt.get('EOS')
+
+    # Computing the output of the encoder for the source sequence
+    encoder_output = model.encode(source, source_mask)
+    # Initializing the decoder input with the Start of Sentence token
+    decoder_input = torch.empty(1, 1).fill_(bos_id).type_as(source).to(device)
+
+    # Looping until the 'max_len', maximum length, is reached
+    while True:
+        if decoder_input.size(1) == max_len:
+            break
+
+        # Building a mask for the decoder input
+        decoder_mask = casual_mask(decoder_input.size(1)).type_as(source_mask).to(device)
+
+        # Calculating the output of the decoder
+        out = model.decode(encoder_output, source_mask, decoder_input, decoder_mask)
+
+        # Applying the projection layer to get the probabilities for the next token
+        prob = model.project(out[:, -1])
+
+        # Selecting token with the highest probability
+        _, next_word = torch.max(prob, dim=1)
+        decoder_input = torch.cat([decoder_input, torch.empty(1, 1).type_as(source).fill_(next_word.item()).to(device)],
+                                  dim=1)
+
+        # If the next token is an End of Sentence token, we finish the loop
+        if next_word == eos_id:
+            break
+
+    return decoder_input.squeeze(0)  # Sequence of tokens generated by the decoder
+
+
+# Defining function to evaluate the model on the validation dataset
+# num_examples = 2, two examples per run
+def run_test(model, data, tokenizer_tgt, max_len, device, num_examples=4):
+    model.eval()  # Setting model to evaluation mode
+    count = 0  # Initializing counter to keep track of how many examples have been processed
+
+    console_width = 80  # Fixed witdh for printed messages
+
+    for i, batch in enumerate(data.dev_data):
+        count += 1
+        encoder_input = batch.src.to(device)
+        encoder_mask = batch.src_mask.to(device)
+
+        # Ensuring that the batch_size of the validation set is 1
+        assert encoder_input.size(0) == 1, 'Batch size must be 1 for validation.'
+
+        # Applying the 'greedy_decode' function to get the model's output for the source text of the input batch
+        model_out = greedy_decode(model, encoder_input, encoder_mask, tokenizer_tgt, max_len, device)
+
+        # Retrieving source and target texts from the batch
+        source_text = " ".join([data.en_index_dict[w] for w in data.dev_en[i]])
+        target_text = " ".join([data.cn_index_dict[w] for w in data.dev_cn[i]])
+
+        # save all in the translation list
+        model_out_text = []
+        # convert id to Chinese, skip 'BOS' 0.
+        print(model_out)
+        for j in range(1, model_out.size(0)):
+            sym = data.cn_index_dict[model_out[j].item()]
+            if sym != 'EOS':
+                model_out_text.append(sym)
+            else:
+                break
+
+        # Printing results
+        print('-' * console_width)
+        print(f'SOURCE: {source_text}')
+        print(f'TARGET: {target_text}')
+        print(f'PREDICTED: {model_out_text}')
+
+
+model_save_path = config['save_file']
+
+run_test(model, data, data.cn_word_dict, config['seq_len'], device)
