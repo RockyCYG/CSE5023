@@ -211,7 +211,7 @@ class Encoder(nn.Module):
         self.layers = layers # Storing the EncoderBlocks
         self.norm = LayerNormalization() # Layer for the normalization of the output of the encoder layers
         
-    def forward(self, x, mask):
+    def forward(self, x, mask=None):
         # Iterating over each EncoderBlock stored in self.layers
         for layer in self.layers:
             x = layer(x, mask) # Applying each EncoderBlock to the input tensor 'x'

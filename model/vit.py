@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from transformer import MultiHeadAttentionBlock, FeedForwardBlock, EncoderBlock, Encoder, LayerNormalization
+from model.transformer import MultiHeadAttentionBlock, FeedForwardBlock, EncoderBlock, Encoder, LayerNormalization
 
 class PatchEmbedding(nn.Module):
     def __init__(self, img_size, patch_size, in_channels, d_model):
@@ -48,4 +48,11 @@ class ViT(nn.Module):
         self.encoder = Encoder(nn.ModuleList(encoder_blocks))
         self.norm = LayerNormalization()
         self.classifier = nn.Linear(d_model, num_classes)
-        
+
+    def forward(self, x):
+        x = self.patch_embed(x)
+        x = self.encoder(x)
+        x = self.norm(x[:, 0])
+        x = self.classifier(x)
+        return x
+    
