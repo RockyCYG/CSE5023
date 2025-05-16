@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from tqdm import tqdm
-from nltk.translate.bleu_score import corpus_bleu, sentence_bleu
+from nltk.translate.bleu_score import corpus_bleu, sentence_bleu, SmoothingFunction
 import jieba
 import evaluate
 
@@ -38,7 +38,7 @@ def get_config(debug=True):
             'd_model': 128,  # Dimensions of the embeddings in the Transformer
             'd_ff': 256,  # Dimensions of the feedforward layer in the Transformer
             'dropout': 0.1,
-            'seq_len': 60,  # max length
+            'seq_len': 120,  # max length
             'train_file': 'data/en-cn/train_mini.txt',
             'dev_file': 'data/en-cn/dev_mini.txt',
             'save_file': 'save/models/model.pt'
@@ -53,7 +53,7 @@ def get_config(debug=True):
             'd_model': 256,  # Dimensions of the embeddings in the Transformer
             'd_ff': 1024,  # Dimensions of the feedforward layer in the Transformer
             'dropout': 0.1,
-            'seq_len': 60,  # max length
+            'seq_len': 120,  # max length
             'train_file': 'data/en-cn/train.txt',
             'dev_file': 'data/en-cn/dev.txt',
             'save_file': 'save/models/model.pt'
@@ -92,7 +92,7 @@ loss_fn = nn.CrossEntropyLoss(ignore_index=PAD, label_smoothing=0.).to(device)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=config['lr'], eps=1e-9)
 
-model.load_state_dict(torch.load('./save/models/model-100.pt'))
+model.load_state_dict(torch.load('./save/transformer-models/model-99.pt'))
 
 
 def casual_mask(size):
@@ -139,13 +139,14 @@ def greedy_decode(model, source, source_mask, tokenizer_tgt, max_len, device):
 
 def cut_word(sentence):
     words = list(jieba.cut(sentence, cut_all=False))
-    res = ""
-    for word in words:
-        if res == "":
-            res += word
-        else:
-            res += ' ' + word
-    return res
+    # res = ""
+    # for word in words:
+    #     if res == "":
+    #         res += word
+    #     else:
+    #         res += ' ' + word
+    # return res
+    return words
 
 # Defining function to evaluate the model on the validation dataset
 # num_examples = 2, two examples per run
@@ -154,6 +155,7 @@ def run_test(model, ens, cns, test_data, tokenizer_tgt, max_len, device):
     count = 0  # Initializing counter to keep track of how many examples have been processed
 
     console_width = 80  # Fixed witdh for printed messages
+    results = []
 
     for i, batch in enumerate(test_data):
         count += 1
@@ -173,7 +175,7 @@ def run_test(model, ens, cns, test_data, tokenizer_tgt, max_len, device):
         # save all in the translation list
         model_out_text = []
         # convert id to Chinese, skip 'BOS' 0.
-        print(model_out)
+        # print(model_out)
         for j in range(1, model_out.size(0)):
             sym = data.cn_index_dict[model_out[j].item()]
             if sym != 'EOS':
@@ -183,21 +185,25 @@ def run_test(model, ens, cns, test_data, tokenizer_tgt, max_len, device):
 
         # Printing results
         print('-' * console_width)
-        print(f'SOURCE: {source_text}')
-        print(f'TARGET: {target_text}')
-        print(f'PREDICTED: {model_out_text}')
-
+        print(f'source: {source_text}')
+        # print(f'TARGET: {target_text}')
+        # print(f'PREDICTED: {model_out_text}')
+        print("prediction:", "".join(model_out_text))
+        print("reference:", "".join([data.cn_index_dict[w] for w in cns[i][1:-1]]))
         prediction = cut_word("".join(model_out_text))
         reference = cut_word("".join([data.cn_index_dict[w] for w in cns[i][1:-1]]))
-        predictions = [prediction]
-        references = [
-            [reference]
-        ]
-        bleu = evaluate.load("bleu")
-        result = bleu.compute(predictions=predictions, references=references, max_order=2)
-        print(predictions)
-        print(references)
+        predictions = prediction
+        references = [reference]
+        # print(f'TARGET: {reference}')
+        # print(f'PREDICTED: {prediction}')
+        # bleu = evaluate.load("bleu")
+        # result = bleu.compute(predictions=predictions, references=references, max_order=2)
+        result = sentence_bleu(references, predictions, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=SmoothingFunction().method4)
+        # print(references)
+        # print(predictions)
         print(f"BLEU score: {result}")
+        results.append(result)
+    print(f"{epoch} epoch: {np.average(results).item()}")
 
 
 model_save_path = config['save_file']
@@ -207,4 +213,6 @@ ens, cns = data.wordToID(ens, cns, data.en_word_dict, data.cn_word_dict)
 print(ens, cns)
 test_data = data.splitBatch(ens, cns, batch_size=1, shuffle=False)
 
-run_test(model, ens, cns, test_data, data.cn_word_dict, config['seq_len'], device)
+for epoch in range(99, 100):
+    model.load_state_dict(torch.load(f'./save/transformer-models/model-{epoch}.pt'))
+    run_test(model, ens, cns, test_data, data.cn_word_dict, config['seq_len'], device)

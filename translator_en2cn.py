@@ -11,6 +11,9 @@ import torch.nn as nn
 import numpy as np
 from tqdm import tqdm
 
+import nltk
+# nltk.download('punkt_tab')
+
 import warnings
 warnings.filterwarnings('ignore') # Filtering warnings
 
@@ -34,7 +37,7 @@ def get_config(debug=True):
             'd_model': 128, # Dimensions of the embeddings in the Transformer
             'd_ff': 256, # Dimensions of the feedforward layer in the Transformer
             'dropout': 0.1,
-            'seq_len': 60, # max length
+            'seq_len': 120, # max length
             'train_file': 'data/en-cn/train_mini.txt',
             'dev_file': 'data/en-cn/dev_mini.txt',
             'save_file': 'save/models/model.pt'
@@ -49,7 +52,7 @@ def get_config(debug=True):
             'd_model': 256, # Dimensions of the embeddings in the Transformer
             'd_ff': 1024, # Dimensions of the feedforward layer in the Transformer
             'dropout': 0.1,
-            'seq_len': 60, # max length
+            'seq_len': 120, # max length
             'train_file': 'data/en-cn/train.txt',
             'dev_file': 'data/en-cn/dev.txt',
             'save_file': 'save/models/model.pt'
@@ -192,7 +195,7 @@ global_step = 0
 model_save_path = config['save_file']
 
 # Iterating over each epoch from the 'initial_epoch' variable up to the number of epochs informed in the config
-for epoch in range(initial_epoch, 101):
+for epoch in range(initial_epoch, 100):
     # Initializing an iterator over the training dataloader
     # We also use tqdm to display a progress bar
     batch_iterator = tqdm(data.train_data, desc = f'Processing epoch {epoch:02d}')
@@ -238,7 +241,7 @@ for epoch in range(initial_epoch, 101):
     if epoch % 5 == 4:
         run_validation(model, data, data.cn_word_dict, config['seq_len'], device, lambda msg: batch_iterator.write(msg))
 
-    torch.save(model.state_dict(), f"save/models/model-{epoch}.pt")
+    torch.save(model.state_dict(), f"save/transformer-models/model-{epoch}.pt")
 
 print(f"<<<<<<< finished train, cost {time.time()-train_start:.4f} seconds")
 
