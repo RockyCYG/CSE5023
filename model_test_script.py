@@ -38,7 +38,7 @@ def get_config(debug=True):
             'seq_len': 60,  # max length
             'train_file': 'data/en-cn/train_mini.txt',
             'dev_file': 'data/en-cn/dev_mini.txt',
-            'save_file': 'save/models/model.pt'
+            'save_file': 'results/models/model.pt'
         }
     else:
         return {
@@ -53,7 +53,7 @@ def get_config(debug=True):
             'seq_len': 60,  # max length
             'train_file': 'data/en-cn/train.txt',
             'dev_file': 'data/en-cn/dev.txt',
-            'save_file': 'save/models/model.pt'
+            'save_file': 'results/models/model.pt'
         }
 
 
@@ -82,7 +82,7 @@ print(f"tgt_vocab_size {tgt_vocab_size}")
 # Model
 model = get_model(config, src_vocab_size, tgt_vocab_size).to(device)
 
-model.load_state_dict(torch.load('./save/models/model-100.pt'))
+model.load_state_dict(torch.load('./results/models/model-100.pt'))
 
 
 def casual_mask(size):

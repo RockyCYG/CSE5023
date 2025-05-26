@@ -37,7 +37,7 @@ def get_config(debug=True):
             'seq_len': 60,  # max length
             'train_file': 'data/en-cn/train_mini.txt',
             'dev_file': 'data/en-cn/dev_mini.txt',
-            'save_file': 'save/models/model.pt'
+            'save_file': 'results/models/model.pt'
         }
     else:
         return {
@@ -52,7 +52,7 @@ def get_config(debug=True):
             'seq_len': 60,  # max length
             'train_file': 'data/en-cn/train.txt',
             'dev_file': 'data/en-cn/dev.txt',
-            'save_file': 'save/models/model.pt'
+            'save_file': 'results/models/model.pt'
         }
 
 
@@ -88,7 +88,7 @@ loss_fn = nn.CrossEntropyLoss(ignore_index=PAD, label_smoothing=0.).to(device)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=config['lr'], eps=1e-9)
 
-model.load_state_dict(torch.load('./save/models/model-100.pt'))
+model.load_state_dict(torch.load('./results/models/model-100.pt'))
 
 
 def casual_mask(size):

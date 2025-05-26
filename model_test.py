@@ -41,7 +41,7 @@ def get_config(debug=True):
             'seq_len': 120,  # max length
             'train_file': 'data/en-cn/train_mini.txt',
             'dev_file': 'data/en-cn/dev_mini.txt',
-            'save_file': 'save/models/model.pt'
+            'save_file': 'results/transformer-models/model.pt'
         }
     else:
         return {
@@ -56,7 +56,7 @@ def get_config(debug=True):
             'seq_len': 120,  # max length
             'train_file': 'data/en-cn/train.txt',
             'dev_file': 'data/en-cn/dev.txt',
-            'save_file': 'save/models/model.pt'
+            'save_file': 'results/transformer-models/model.pt'
         }
 
 
@@ -91,9 +91,6 @@ model = get_model(config, src_vocab_size, tgt_vocab_size).to(device)
 loss_fn = nn.CrossEntropyLoss(ignore_index=PAD, label_smoothing=0.).to(device)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=config['lr'], eps=1e-9)
-
-model.load_state_dict(torch.load('./save/transformer-models/model-99.pt'))
-
 
 def casual_mask(size):
     # Creating a square matrix of dimensions 'size x size' filled with ones
@@ -184,26 +181,37 @@ def run_test(model, ens, cns, test_data, tokenizer_tgt, max_len, device):
                 break
 
         # Printing results
+        prediction = cut_word("".join(model_out_text))
+        reference = cut_word("".join([data.cn_index_dict[w] for w in cns[i][1:-1]]))
+        predictions = prediction
+        references = [reference]
+        # 如果预测或参考中有UNK，跳过本条
+        if 'UNK' in source_text or 'UNK' in target_text or 'UNK' in prediction or 'UNK' in reference:
+            continue
+        # print(f'TARGET: {reference}')
+        # print(f'PREDICTED: {prediction}')
+        # bleu = evaluate.load("bleu")
+        # result = bleu.compute(predictions=predictions, references=references, max_order=2)
+        if len(predictions) == 1:
+            weights = (1.0,)
+        elif len(predictions) == 2:
+            weights = (0.5, 0.5)
+        elif len(predictions) == 3:
+            weights = (1 / 3, 1 / 3, 1 / 3)
+        else:
+            weights = (0.25, 0.25, 0.25, 0.25)
+        result = sentence_bleu(references, predictions, weights=weights, smoothing_function=SmoothingFunction().method4)
+        # print(references)
+        # print(predictions)
         print('-' * console_width)
         print(f'source: {source_text}')
         # print(f'TARGET: {target_text}')
         # print(f'PREDICTED: {model_out_text}')
         print("prediction:", "".join(model_out_text))
         print("reference:", "".join([data.cn_index_dict[w] for w in cns[i][1:-1]]))
-        prediction = cut_word("".join(model_out_text))
-        reference = cut_word("".join([data.cn_index_dict[w] for w in cns[i][1:-1]]))
-        predictions = prediction
-        references = [reference]
-        # print(f'TARGET: {reference}')
-        # print(f'PREDICTED: {prediction}')
-        # bleu = evaluate.load("bleu")
-        # result = bleu.compute(predictions=predictions, references=references, max_order=2)
-        result = sentence_bleu(references, predictions, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=SmoothingFunction().method4)
-        # print(references)
-        # print(predictions)
         print(f"BLEU score: {result}")
         results.append(result)
-    print(f"{epoch} epoch: {np.average(results).item()}")
+    print(f"BLEU score on test dataset: {np.average(results).item()}")
 
 
 model_save_path = config['save_file']
@@ -213,6 +221,7 @@ ens, cns = data.wordToID(ens, cns, data.en_word_dict, data.cn_word_dict)
 print(ens, cns)
 test_data = data.splitBatch(ens, cns, batch_size=1, shuffle=False)
 
-for epoch in range(99, 100):
-    model.load_state_dict(torch.load(f'./save/transformer-models/model-{epoch}.pt'))
-    run_test(model, ens, cns, test_data, data.cn_word_dict, config['seq_len'], device)
+model.load_state_dict(torch.load('./results/transformer-models/model-99.pt'))
+# for epoch in range(99, 100):
+#     model.load_state_dict(torch.load(f'./results/transformer-models/model-{epoch}.pt'))
+run_test(model, ens, cns, test_data, data.cn_word_dict, config['seq_len'], device)

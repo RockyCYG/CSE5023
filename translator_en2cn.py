@@ -10,12 +10,18 @@ import torch
 import torch.nn as nn
 import numpy as np
 from tqdm import tqdm
+import os
 
 import nltk
+from nltk.translate.bleu_score import corpus_bleu, sentence_bleu, SmoothingFunction
+import jieba
+
 # nltk.download('punkt_tab')
 
 import warnings
 warnings.filterwarnings('ignore') # Filtering warnings
+
+# from timm.scheduler.cosine_lr import CosineLRScheduler
 
 
 # init parameters
@@ -25,6 +31,9 @@ UNK = 1  # unknown word-id
 
 # DEBUG = True    # Debug / Learning Purposes.
 DEBUG = False # Build the model, better with GPU CUDA enabled.
+
+MODEL_DIR = "results/transformer-models-learnable"
+os.makedirs(MODEL_DIR, exist_ok=True)
 
 def get_config(debug=True):
     if debug:
@@ -40,7 +49,7 @@ def get_config(debug=True):
             'seq_len': 120, # max length
             'train_file': 'data/en-cn/train_mini.txt',
             'dev_file': 'data/en-cn/dev_mini.txt',
-            'save_file': 'save/models/model.pt'
+            'save_file': f'{MODEL_DIR}/model.pt'
         }
     else:
         return{
@@ -55,7 +64,7 @@ def get_config(debug=True):
             'seq_len': 120, # max length
             'train_file': 'data/en-cn/train.txt',
             'dev_file': 'data/en-cn/dev.txt',
-            'save_file': 'save/models/model.pt'
+            'save_file': f'{MODEL_DIR}/model.pt'
         }
 
 
@@ -91,7 +100,7 @@ model = get_model(config, src_vocab_size, tgt_vocab_size).to(device)
 loss_fn = nn.CrossEntropyLoss(ignore_index=PAD, label_smoothing=0.).to(device)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=config['lr'], eps = 1e-9)
-
+# scheduler = CosineLRScheduler(optimizer, t_initial=100, lr_min=1e-6, warmup_t=3, warmup_lr_init=1e-7, t_in_epochs=True, initialize=True)
 
 
 def casual_mask(size):
@@ -137,35 +146,35 @@ def greedy_decode(model, source, source_mask, tokenizer_tgt, max_len, device):
 
 
 
+def cut_word(sentence):
+    words = list(jieba.cut(sentence, cut_all=False))
+    return words
+
+
+# 记录每一轮的loss和bleu
+epoch_loss_list = []
+epoch_bleu_list = []
+
 # Defining function to evaluate the model on the validation dataset
 # num_examples = 2, two examples per run
 def run_validation(model, data, tokenizer_tgt, max_len, device, print_msg, num_examples=4):
-    model.eval() # Setting model to evaluation mode
-    count = 0 # Initializing counter to keep track of how many examples have been processed
-    
-    console_width = 80 # Fixed witdh for printed messages
-    
-    # Creating evaluation loop
-    with torch.no_grad(): # Ensuring that no gradients are computed during this process
+    model.eval()
+    count = 0
+    console_width = 80
+    results = []
+
+    with torch.no_grad():
         for i, batch in enumerate(data.dev_data):
             count += 1
             encoder_input = batch.src.to(device)
             encoder_mask = batch.src_mask.to(device)
-            
-            # Ensuring that the batch_size of the validation set is 1
             assert encoder_input.size(0) ==  1, 'Batch size must be 1 for validation.'
-            
-            # Applying the 'greedy_decode' function to get the model's output for the source text of the input batch
             model_out = greedy_decode(model, encoder_input, encoder_mask, tokenizer_tgt, max_len, device)
 
-            # Retrieving source and target texts from the batch
             source_text = " ".join([data.en_index_dict[w] for w in data.dev_en[i]])
             target_text = " ".join([data.cn_index_dict[w] for w in data.dev_cn[i]])
 
-            # save all in the translation list
             model_out_text = []
-            # convert id to Chinese, skip 'BOS' 0.
-            print(model_out)
             for j in range(1, model_out.size(0)):
                 sym = data.cn_index_dict[model_out[j].item()]
                 if sym != 'EOS':
@@ -173,15 +182,34 @@ def run_validation(model, data, tokenizer_tgt, max_len, device, print_msg, num_e
                 else:
                     break
 
-            # Printing results
-            print_msg('-'*console_width)
-            print_msg(f'SOURCE: {source_text}')
-            print_msg(f'TARGET: {target_text}')
-            print_msg(f'PREDICTED: {model_out_text}')
-            
-            # After two examples, we break the loop
-            if count == num_examples:
-                break
+            prediction = cut_word("".join(model_out_text))
+            reference = cut_word("".join([data.cn_index_dict[w] for w in data.dev_cn[i][1:-1]]))
+            # 如果预测或参考中有UNK，跳过本条
+            if 'UNK' in source_text or 'UNK' in target_text or 'UNK' in prediction or 'UNK' in reference:
+                continue
+            predictions = prediction
+            references = [reference]
+            # print_msg('-'*console_width)
+            # print_msg(f'SOURCE: {source_text}')
+            # print_msg(f'TARGET: {target_text}')
+            # print_msg(f'PREDICTED: {model_out_text}')
+            # print_msg(f'PREDICTION: {predictions}')
+            # print_msg(f'REFERENCE: {references}')
+            if len(predictions) == 1:
+                weights = (1.0,)
+            elif len(predictions) == 2:
+                weights = (0.5, 0.5)
+            elif len(predictions) == 3:
+                weights = (1 / 3, 1 / 3, 1 / 3)
+            else:
+                weights = (0.25, 0.25, 0.25, 0.25)
+            bleu = sentence_bleu(references, predictions, weights=weights, smoothing_function=SmoothingFunction().method4)
+            # print_msg(f"BLEU score: {bleu}")
+            results.append(bleu)
+
+    avg_bleu = np.average(results) if results else 0.0
+    print_msg(f'Average BLEU score on validation set: {avg_bleu:.4f}')
+    return avg_bleu
 
 
 # Training model
@@ -199,6 +227,8 @@ for epoch in range(initial_epoch, 100):
     # Initializing an iterator over the training dataloader
     # We also use tqdm to display a progress bar
     batch_iterator = tqdm(data.train_data, desc = f'Processing epoch {epoch:02d}')
+    epoch_loss = 0.0 # Initializing epoch loss
+    epoch_samples = 0 # Initializing epoch samples
     
     # For each batch...
     for batch in batch_iterator:
@@ -212,39 +242,58 @@ for epoch in range(initial_epoch, 100):
         # print(encoder_input[0], encoder_mask[0], decoder_input[0], decoder_mask[0])
         # print(encoder_input.shape, encoder_mask.shape, decoder_input.shape, decoder_mask.shape)
 
+        optimizer.zero_grad()
+
         # Running tensors through the Transformer
         encoder_output = model.encode(encoder_input, encoder_mask)
         decoder_output = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask)
         proj_output = model.project(decoder_output)
         
-        # Loading the target labels onto the GPU
         label = batch.tgt_y.to(device)
-        
-        # Computing loss between model's output and true labels
         loss = loss_fn(proj_output.view(-1, tgt_vocab_size), label.view(-1))
-        
-        # Updating progress bar
-        batch_iterator.set_postfix({f"loss": f"{loss.item():6.3f}"})
-        
-        # Performing backpropagation
         loss.backward()
-        
-        # Updating parameters based on the gradients
         optimizer.step()
-        
-        # Clearing the gradients to prepare for the next batch
-        optimizer.zero_grad()
-        
+        batch_size_actual = encoder_input.size(0)
+        epoch_loss += loss.item() * batch_size_actual
+        epoch_samples += batch_size_actual
+        batch_iterator.set_postfix({"loss": f"{epoch_loss/epoch_samples:6.4f}"})
         global_step += 1 # Updating global step count
 
-    # to evaluate model performance
-    if epoch % 5 == 4:
-        run_validation(model, data, data.cn_word_dict, config['seq_len'], device, lambda msg: batch_iterator.write(msg))
+    # Updating the learning rate
+    # scheduler.step(epoch)
 
-    torch.save(model.state_dict(), f"save/transformer-models/model-{epoch}.pt")
+    avg_loss = epoch_loss / epoch_samples if epoch_samples > 0 else 0.0
+    epoch_loss_list.append(avg_loss)
 
-print(f"<<<<<<< finished train, cost {time.time()-train_start:.4f} seconds")
+    if (epoch + 1) % 10 == 0:
+        avg_bleu = run_validation(model, data, data.cn_word_dict, config['seq_len'], device, lambda msg: batch_iterator.write(msg))
+        epoch_bleu_list.append(avg_bleu)
+        print(f"Epoch {epoch} finished: loss = {avg_loss:.4f}, bleu = {avg_bleu:.4f}")
+    else:
+        print(f"Epoch {epoch} finished: loss = {avg_loss:.4f}")
+        avg_bleu = None  # 保证每一行都有对应bleu
 
+    torch.save(model.state_dict(), f"{MODEL_DIR}/model-{epoch}.pt")
 
+    # 每个epoch都追加保存loss和bleu
+    with open(f"{MODEL_DIR}/epoch_loss_list.txt", "a") as f_loss:
+        f_loss.write(f"{avg_loss}\n")
+    with open(f"{MODEL_DIR}/epoch_bleu_list.txt", "a") as f_bleu:
+        if avg_bleu is not None:
+            f_bleu.write(f"{avg_bleu}\n")
+        else:
+            f_bleu.write("\n")
 
+# 保存loss和bleu曲线数据到txt文件
+with open(f"{MODEL_DIR}/epoch_loss_list.txt", "w") as f_loss:
+    for loss in epoch_loss_list:
+        f_loss.write(f"{loss}\n")
+with open(f"{MODEL_DIR}/epoch_bleu_list.txt", "w") as f_bleu:
+    for bleu in epoch_bleu_list:
+        f_bleu.write(f"{bleu}\n")
 
+train_time = time.time() - train_start
+print(f"<<<<<<< finished train, cost {train_time:.4f} seconds")
+
+with open(f"{MODEL_DIR}/train_time.txt", "w") as f:
+    f.write(f"{train_time}\n")

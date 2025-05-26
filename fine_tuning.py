@@ -187,7 +187,7 @@ def get_config(debug=True):
             'seq_len': 120,  # max length
             'train_file': 'data/en-cn/train_mini.txt',
             'dev_file': 'data/en-cn/dev_mini.txt',
-            'save_file': 'save/models/model.pt'
+            'save_file': 'results/models/model.pt'
         }
     else:
         return {
@@ -202,7 +202,7 @@ def get_config(debug=True):
             'seq_len': 120,  # max length
             'train_file': 'data/en-cn/train.txt',
             'dev_file': 'data/en-cn/dev.txt',
-            'save_file': 'save/models/model.pt'
+            'save_file': 'results/models/model.pt'
         }
 
 
@@ -232,7 +232,7 @@ if __name__ == "__main__":
 
     # Model
     pretrained_model = get_model(config, src_vocab_size, tgt_vocab_size).to(device)
-    pretrained_model.load_state_dict(torch.load('./save/transformer-models/model-99.pt'))
+    pretrained_model.load_state_dict(torch.load('./resultstransformer-models/model-99.pt'))
 
     
 
@@ -285,6 +285,6 @@ if __name__ == "__main__":
             
             global_step += 1 # Updating global step count
 
-        torch.save(model.state_dict(), f"save/sentiment-models/model-{epoch}.pt")
+        torch.save(model.state_dict(), f"resultssentiment-models/model-{epoch}.pt")
 
     print(f"<<<<<<< finished train, cost {time.time()-train_start:.4f} seconds")

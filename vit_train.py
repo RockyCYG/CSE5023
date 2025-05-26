@@ -80,7 +80,7 @@ for epoch in range(0, epochs):
     if epoch % 5 == 4:
         run_validation()
 
-    torch.save(model.state_dict(), f"save/vit-models/model-{epoch}.pt")
+    torch.save(model.state_dict(), f"resultsvit-models/model-{epoch}.pt")
 
 
 print(f"<<<<<<< finished train, cost {time.time()-train_start:.4f} seconds")

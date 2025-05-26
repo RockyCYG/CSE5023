@@ -106,6 +106,6 @@ for epoch in range(epochs):
     if epoch % 5 == 4:
         run_validation()
 
-    torch.save(model.state_dict(), f"save/cnn-models/cnn-model-{epoch}.pth")
+    torch.save(model.state_dict(), f"resultscnn-models/cnn-model-{epoch}.pth")
 
 print(f"<<<<<<< finished train, cost {time.time()-train_start:.1f} seconds >>>>>>>")
