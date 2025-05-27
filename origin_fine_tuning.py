@@ -1,7 +1,6 @@
 from collections import Counter
 import time
 import warnings
-import os
 
 import torch
 import torch.nn as nn
@@ -20,6 +19,7 @@ warnings.filterwarnings('ignore')  # Filtering warnings
 PAD = 0  # padding word-id
 UNK = 1  # unknown word-id
 
+# DEBUG = True    # Debug / Learning Purposes.
 DEBUG = False  # Build the model, better with GPU CUDA enabled.
 
 class SentimentClassifier(nn.Module):
@@ -32,18 +32,13 @@ class SentimentClassifier(nn.Module):
         self.classifier = nn.Sequential(
             nn.LayerNorm(d_model),
             nn.Linear(d_model, 512),  # 扩大
-            nn.GELU(),
-            nn.Dropout(0.1),
+            nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(512, 128),      # 再缩小
-            nn.GELU(),
-            nn.Dropout(0.1),
+            nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(128, num_classes)
         )
-        # self.classifier = nn.Sequential(
-        #     nn.LayerNorm(d_model),
-        #     nn.Dropout(0.1),
-        #     nn.Linear(d_model, num_classes)
-        # )
 
     def forward(self, x, src_mask):
         # src_mask = (x != PAD).unsqueeze(1).unsqueeze(1) # mask [B 1 1 src_L]
@@ -100,17 +95,14 @@ class SentimentBatch:
         self.label = tgt
 
 class SentimentData:
-    def __init__(self, train_file, batch_size, en_dict, unk_id, pad_id, valid_ratio=0.1):
+    def __init__(self, train_file, batch_size, en_dict, unk_id, pad_id):
         self.unk_id = unk_id
         self.pad_id = pad_id
-        self.valid_ratio = valid_ratio
         self.train_en, self.train_label = self.load_data(train_file)
+        # self.en_word_dict, self.en_total_words, self.en_index_dict = self.build_dict(en_dict, self.train_en)
         self.train_en, self.train_label = self.wordToID(self.train_en, self.train_label, en_dict)
-        # 划分训练集和验证集
-        (self.train_en, self.train_label), (self.valid_en, self.valid_label) = self.split_train_valid(
-            self.train_en, self.train_label, self.valid_ratio)
         self.train_data = self.splitBatch(self.train_en, self.train_label, batch_size)
-        self.valid_data = self.splitBatch(self.valid_en, self.valid_label, batch_size, shuffle=False)
+
 
     def load_data(self, train_file):
         ens = []
@@ -142,17 +134,6 @@ class SentimentData:
     
         return filtered_en_ids, filtered_labels
         
-    def split_train_valid(self, en, label, valid_ratio=0.1):
-        idxs = list(range(len(en)))
-        n_valid = int(len(en) * valid_ratio)
-        valid_idxs = idxs[:n_valid]
-        train_idxs = idxs[n_valid:]
-        train_en = [en[i] for i in train_idxs]
-        train_label = [label[i] for i in train_idxs]
-        valid_en = [en[i] for i in valid_idxs]
-        valid_label = [label[i] for i in valid_idxs]
-        return (train_en, train_label), (valid_en, valid_label)
-
     def splitBatch(self, en, label, batch_size, shuffle=True):
         """
         get data into batches
@@ -192,9 +173,6 @@ class SentimentData:
     #     return en_dict, len(en_dict), index_dict
 
 
-MODEL_DIR = "results/sentiment-models-gelu"
-os.makedirs(MODEL_DIR, exist_ok=True)
-
 def get_config(debug=True):
     if debug:
         return {
@@ -209,7 +187,7 @@ def get_config(debug=True):
             'seq_len': 120,  # max length
             'train_file': 'data/en-cn/train_mini.txt',
             'dev_file': 'data/en-cn/dev_mini.txt',
-            'save_file': f'{MODEL_DIR}/model.pt'
+            'save_file': 'save/models/model.pt'
         }
     else:
         return {
@@ -224,7 +202,7 @@ def get_config(debug=True):
             'seq_len': 120,  # max length
             'train_file': 'data/en-cn/train.txt',
             'dev_file': 'data/en-cn/dev.txt',
-            'save_file': f'{MODEL_DIR}/model.pt'
+            'save_file': 'save/models/model.pt'
         }
 
 
@@ -235,31 +213,6 @@ def get_model(config, vocab_src_len, vocab_tgt_len):
     model = build_transformer(vocab_src_len, vocab_tgt_len, config['seq_len'], config['seq_len'], config['d_model'], 
                               config['n_layer'], config['h_num'], config['dropout'], config['d_ff'])
     return model
-
-def run_validation(model, valid_data, device):
-    model.eval()
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for batch in valid_data:
-            src = batch.src.to(device)
-            src_mask = batch.src_mask.to(device)
-            label = batch.label.to(device)
-            logits = model(src, src_mask)
-            preds = torch.argmax(logits, dim=1)
-            correct += (preds == label).sum().item()
-            total += label.size(0)
-    acc = correct / total if total > 0 else 0.0
-    print(f'Validation accuracy: {acc:.4f}')
-    return acc
-
-class IdentityPositionalEncoding(nn.Module):
-    """Identity positional encoding that does nothing."""
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x):
-        return x
 
 if __name__ == "__main__":
 
@@ -273,16 +226,15 @@ if __name__ == "__main__":
     # Data Preprocessing
     data = PrepareData(config['train_file'], config['dev_file'], config['batch_size'], UNK, PAD)
     sentiment_data = SentimentData('train.jsonl', config['batch_size'], data.en_word_dict, UNK, PAD)
+    # src_vocab_size = len(data.en_word_dict); print(f"src_vocab_size {src_vocab_size}")
     src_vocab_size = len(data.en_word_dict)
     tgt_vocab_size = len(data.cn_word_dict); print(f"tgt_vocab_size {tgt_vocab_size}")
 
     # Model
     pretrained_model = get_model(config, src_vocab_size, tgt_vocab_size).to(device)
-    pretrained_model.load_state_dict(torch.load('./results/transformer-models/model-99.pt'))
+    pretrained_model.load_state_dict(torch.load('./save/transformer-models/model-99.pt'))
 
-    # pretrained_model.src_pos = IdentityPositionalEncoding().to(device)  # Use identity positional encoding
-    # pretrained_model.tgt_pos = IdentityPositionalEncoding().to(device)  # Use identity positional encoding
-
+    
 
     model = SentimentClassifier(pretrained_model, config['d_model'], num_classes=3).to(device)
 
@@ -293,27 +245,24 @@ if __name__ == "__main__":
 
     optimizer = torch.optim.Adam(model.parameters(), lr=config['lr'], eps = 1e-9)
 
-    # 记录每一轮的loss
-    epoch_loss_list = []
-    epoch_acc_list = []
-
+    # Training model
     print(">>>>>>> start train")
     train_start = time.time()
     # Initializing epoch and global step variables
     initial_epoch = 0
     global_step = 0
 
-    model_save_path = config['save_file']
-
+    # Iterating over each epoch from the 'initial_epoch' variable up to the number of epochs informed in the config
     for epoch in range(initial_epoch, 100):
         # Initializing an iterator over the training dataloader
         # We also use tqdm to display a progress bar
         batch_iterator = tqdm(sentiment_data.train_data, desc = f'Processing epoch {epoch:02d}')
-        epoch_loss = 0.0
-        epoch_samples = 0
-
+        
+        # For each batch...
         for batch in batch_iterator:
-            model.train()
+            model.train() # Train the model
+            
+            # Loading input data and masks onto the GPU
             src = batch.src.to(device)
             src_mask = batch.src_mask.to(device)
             label = batch.label.to(device)
@@ -321,50 +270,21 @@ if __name__ == "__main__":
             logits = model(src, src_mask)
 
             loss = loss_fn(logits, label)
-
-            # Clearing the gradients to prepare for the next batch
-            optimizer.zero_grad()
-
-            batch_size_actual = src.size(0)
-            epoch_loss += loss.item() * batch_size_actual
-            epoch_samples += batch_size_actual
-
-            batch_iterator.set_postfix({"loss": f"{epoch_loss/epoch_samples:6.4f}"})
-
+            
+            # Updating progress bar
+            batch_iterator.set_postfix({f"loss": f"{loss.item():6.3f}"})
+            
+            # Performing backpropagation
             loss.backward()
             
             # Updating parameters based on the gradients
             optimizer.step()
-        
-            global_step += 1
+            
+            # Clearing the gradients to prepare for the next batch
+            optimizer.zero_grad()
+            
+            global_step += 1 # Updating global step count
 
-        avg_loss = epoch_loss / epoch_samples if epoch_samples > 0 else 0.0
-        epoch_loss_list.append(avg_loss)
+        torch.save(model.state_dict(), f"save/sentiment-models/model-{epoch}.pt")
 
-        print(f"Epoch {epoch} finished: loss = {avg_loss:.4f}")
-
-        # ========== 验证集评估 ==========
-        acc = run_validation(model, sentiment_data.valid_data, device)
-        epoch_acc_list.append(acc)
-
-        torch.save(model.state_dict(), f"{MODEL_DIR}/model-{epoch}.pt")
-
-        # 每个epoch都追加保存loss和acc
-        with open(f"{MODEL_DIR}/epoch_loss_list.txt", "a") as f_loss:
-            f_loss.write(f"{avg_loss}\n")
-        with open(f"{MODEL_DIR}/epoch_acc_list.txt", "a") as f_acc:
-            f_acc.write(f"{acc}\n")
-
-    # 保存loss和acc曲线数据到txt文件
-    with open(f"{MODEL_DIR}/epoch_loss_list.txt", "w") as f_loss:
-        for loss in epoch_loss_list:
-            f_loss.write(f"{loss}\n")
-    with open(f"{MODEL_DIR}/epoch_acc_list.txt", "w") as f_acc:
-        for acc in epoch_acc_list:
-            f_acc.write(f"{acc}\n")
-
-    train_time = time.time() - train_start
-    print(f"<<<<<<< finished train, cost {train_time:.4f} seconds")
-
-    with open(f"{MODEL_DIR}/train_time.txt", "w") as f:
-        f.write(f"{train_time}\n")
+    print(f"<<<<<<< finished train, cost {time.time()-train_start:.4f} seconds")

@@ -2,3 +2,4 @@ save/
 *.pt
 __pycache__/
 imgs/
+*.pth

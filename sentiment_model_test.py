@@ -41,10 +41,10 @@ tgt_vocab_size = len(data.cn_word_dict); print(f"tgt_vocab_size {tgt_vocab_size}
 
 # Model
 pretrained_model = get_model(config, src_vocab_size, tgt_vocab_size).to(device)
-pretrained_model.load_state_dict(torch.load('./resultstransformer-models/model-99.pt'))
+pretrained_model.load_state_dict(torch.load('./results/transformer-models/model-99.pt'))
 
 model = SentimentClassifier(pretrained_model, config['d_model'], num_classes=3).to(device)
-model.load_state_dict(torch.load('./resultssentiment-models/model-49.pt'))
+model.load_state_dict(torch.load('./results/sentiment-models-gelu/model-99.pt'), strict=False)  # Load the model weights
 
 class SentimentBatch:
     '''Object for holding a batch of data with mask during training.'''

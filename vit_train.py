@@ -5,10 +5,11 @@ import torch.nn as nn
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 import time
+import os
 
-d_model = 1024
+d_model = 256
 patch_size = 4
-batch_size = 512
+batch_size = 128
 lr = 1e-4
 num_classes = 10
 epochs = 100
@@ -19,8 +20,10 @@ transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
 ])
-train_ds = datasets.CIFAR10(root='./imgs', train=True, download=True, transform=transform)
-val_ds = datasets.CIFAR10(root='./imgs', train=False, download=True, transform=transform)
+full_train_ds = datasets.CIFAR10(root='./imgs', train=True, download=True, transform=transform)
+train_size = int(0.9 * len(full_train_ds))
+val_size = len(full_train_ds) - train_size
+train_ds, val_ds = torch.utils.data.random_split(full_train_ds, [train_size, val_size])
 train_loader = DataLoader(dataset=train_ds, batch_size=batch_size, shuffle=True, num_workers=4)
 val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=4)
 
@@ -32,6 +35,10 @@ model = ViT(img_size=img_size, patch_size=patch_size, in_channels=in_channels, d
 
 loss_fn = nn.CrossEntropyLoss(label_smoothing=0.).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=lr, eps = 1e-9)
+
+# 记录每一轮的loss和acc
+epoch_loss_list = []
+epoch_acc_list = []
 
 print(">>>>>>> start train")
 train_start = time.time()
@@ -56,7 +63,10 @@ def run_validation():
     acc = total_correct / total_samples
     print(f"Val Loss: {avg_loss:.4f}, Val Acc: {acc:.4f}")
     model.train()
-    return avg_loss, acc
+    return acc
+
+MODEL_DIR = "results/vit-models-new"
+os.makedirs(MODEL_DIR, exist_ok=True)
 
 for epoch in range(0, epochs):
     model.train()
@@ -77,10 +87,36 @@ for epoch in range(0, epochs):
         epoch_samples += batch_size_actual
         batch_iterator.set_postfix({"loss": f"{epoch_loss/epoch_samples:6.3f}"})
 
-    if epoch % 5 == 4:
-        run_validation()
+    avg_loss = epoch_loss / epoch_samples if epoch_samples > 0 else 0.0
+    epoch_loss_list.append(avg_loss)
 
-    torch.save(model.state_dict(), f"resultsvit-models/model-{epoch}.pt")
+    # 每一轮都做一次验证
+    val_acc = run_validation()
+    epoch_acc_list.append(val_acc)
 
+    torch.save(model.state_dict(), f"{MODEL_DIR}/model-{epoch}.pt")
+
+    # 每个epoch都追加保存loss和acc
+    with open(f"{MODEL_DIR}/epoch_loss_list.txt", "a") as f_loss:
+        f_loss.write(f"{avg_loss}\n")
+    with open(f"{MODEL_DIR}/epoch_acc_list.txt", "a") as f_acc:
+        if epoch_acc_list[-1] is not None:
+            f_acc.write(f"{epoch_acc_list[-1]}\n")
+        else:
+            f_acc.write("\n")
+
+# 保存loss和acc曲线数据到txt文件
+with open(f"{MODEL_DIR}/epoch_loss_list.txt", "w") as f_loss:
+    for loss in epoch_loss_list:
+        f_loss.write(f"{loss}\n")
+with open(f"{MODEL_DIR}/epoch_acc_list.txt", "w") as f_acc:
+    for acc in epoch_acc_list:
+        if acc is not None:
+            f_acc.write(f"{acc}\n")
+        else:
+            f_acc.write("\n")
 
 print(f"<<<<<<< finished train, cost {time.time()-train_start:.4f} seconds")
+
+with open(f"{MODEL_DIR}/train_time.txt", "w") as f:
+    f.write(f"{time.time()-train_start:.4f}\n")
