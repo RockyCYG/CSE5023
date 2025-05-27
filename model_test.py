@@ -50,7 +50,7 @@ def get_config(debug=True):
             'num_epochs': 20,
             'n_layer': 6,
             'h_num': 8,
-            'd_model': 512,  # Dimensions of the embeddings in the Transformer
+            'd_model': 256,  # Dimensions of the embeddings in the Transformer
             'd_ff': 1024,  # Dimensions of the feedforward layer in the Transformer
             'dropout': 0.1,
             'seq_len': 120,  # max length
@@ -221,7 +221,7 @@ ens, cns = data.wordToID(ens, cns, data.en_word_dict, data.cn_word_dict)
 print(ens, cns)
 test_data = data.splitBatch(ens, cns, batch_size=1, shuffle=False)
 
-model.load_state_dict(torch.load('./results/transformer-models-dim-512/model-99.pt'))
+model.load_state_dict(torch.load('./results/transformer-models/model-99.pt'))
 # for epoch in range(99, 100):
 #     model.load_state_dict(torch.load(f'./results/transformer-models/model-{epoch}.pt'))
 run_test(model, ens, cns, test_data, data.cn_word_dict, config['seq_len'], device)

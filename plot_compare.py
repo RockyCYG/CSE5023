@@ -62,7 +62,7 @@ all_folders = [
 ]
 all_labels = [
     ['Layer=3', 'Layer=6', 'Layer=12'],
-    ['Head=4', 'Head=8', 'Head=12'],
+    ['Head=4', 'Head=8', 'Head=16'],
     ['Dim=128', 'Dim=256', 'Dim=512']
 ]
 titles = [
