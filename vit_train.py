@@ -65,7 +65,7 @@ def run_validation():
     model.train()
     return acc
 
-MODEL_DIR = "results/vit-models-new"
+MODEL_DIR = "results/vit-models"
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 for epoch in range(0, epochs):

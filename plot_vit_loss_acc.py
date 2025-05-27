@@ -2,11 +2,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # 读取loss
-with open('results/vit-models-new/epoch_loss_list.txt', 'r') as f:
+with open('results/vit-models/epoch_loss_list.txt', 'r') as f:
     loss_list = [float(line.strip()) for line in f if line.strip()]
 
 # 读取accuracy
-with open('results/vit-models-new/epoch_acc_list.txt', 'r') as f:
+with open('results/vit-models/epoch_acc_list.txt', 'r') as f:
     acc_list = [float(line.strip()) for line in f if line.strip()]
 
 epochs = np.arange(1, len(loss_list) + 1)

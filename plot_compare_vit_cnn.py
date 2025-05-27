@@ -9,7 +9,7 @@ def load_loss_acc(folder):
     return loss_list, acc_list
 
 folders = [
-    'results/vit-models-new',
+    'results/vit-models',
     'results/resnet-cnn-models'
 ]
 labels = [

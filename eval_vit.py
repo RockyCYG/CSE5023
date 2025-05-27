@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 import torch.nn as nn
 
 # 参数
-MODEL_PATH = "results/resnet-cnn-models/model-99.pth"  # 修改为你要评估的模型权重路径
+MODEL_PATH = "results/vit-models/model-99.pt"  # 修改为你要评估的模型权重路径
 batch_size = 128
 num_classes = 10
 d_model = 256
