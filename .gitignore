@@ -1,7 +1,5 @@
 save/
 *.pt
-!*99.pt
 __pycache__/
 imgs/
 *.pth
-!*99.pth
