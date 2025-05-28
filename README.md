@@ -45,7 +45,7 @@ Change the configuration in `translator_en2cn.py`, then run `python translator_e
     'train_file': 'data/en-cn/train.txt',
     'dev_file': 'data/en-cn/dev.txt',
     'save_file': f'{MODEL_DIR}/model.pt'
-    }
+}
 ```
 
 ### 1.5 Positional Embedding
